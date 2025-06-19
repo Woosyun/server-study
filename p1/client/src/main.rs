@@ -1,94 +1,92 @@
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Deserialize};
+use std::{
+    thread,
+    time::{Duration, SystemTime},
+};
+
 
 #[tokio::main]
 async fn main() {
+    let user_1 = create_user().await;
     {
-        let user1 = create_user().await;
-        send_message(user1, 0, "hello world".to_string()).await;
-        send_message(user1, 0, "I'm user1".to_string()).await;
+        let message = Message::from(user_1, "hello I am user_1");
+        send_message(0, message).await;
+        let enter = enter_room(0, user_1).await;
+        println!("{} entered room {}: {:#?}", user_1, 0, enter);
     }
-
-
+    let user_2 = create_user().await;
+    thread::sleep(Duration::from_secs(1));
     {
-        let user2 = create_user().await;
-        let res2 = enter_room(user2, 0).await;
-        println!("user {} entered room {}: {:#?}", user2, 0, res2);
+        let message = Message::from(user_2, "hello I am user_2");
+        send_message(0, message).await;
+        let enter = enter_room(0, user_2).await;
+        println!("{} entered room {}: {:#?}", user_2, 0, enter);
     }
-}
-
-#[derive(Serialize)]
-struct SendMessagePayLoad {
-    room_id: u64,
-    message: Message,
-}
-impl SendMessagePayLoad {
-    fn new(room_id: u64, message: Message) -> Self {
-        Self {
-            room_id,
-            message,
-        }
+    thread::sleep(Duration::from_secs(1));
+    {
+        let enter = enter_room(0, user_1).await;
+        println!("{} entered room {}: {:#?}", user_1, 0, enter);
     }
-}
-async fn send_message(user_id: u64, room_id: u64, content: String) {
-    let msg = Message::new(user_id, content);
-    let p = SendMessagePayLoad::new(room_id, msg);
-    let client = reqwest::Client::new();
-    client.post("http://localhost:3000/send-message")
-        .json(&p)
-        .send()
-        .await.unwrap();
 }
 
 async fn create_user() -> u64 {
-    let id = reqwest::get("http://localhost:3000/create-user")
+    reqwest::get("http://localhost:3000")
         .await.unwrap()
         .json::<u64>()
-        .await.unwrap();
-
-    id
+        .await.unwrap()
 }
+#[derive(Serialize)]
+struct EnterRoomQuery {
+    room_id: u64,
+    user_id: u64,
+}
+async fn enter_room(room_id: u64, user_id: u64) -> Vec<Message> {
+    let q = EnterRoomQuery {
+        room_id,
+        user_id,
+    };
 
-async fn enter_room(user_id: u64, room_id: u64) -> Vec<Message> {
-    let p = EnterRoomPayLoad::new(user_id, room_id);
     let client = reqwest::Client::new();
-    let res = client.post("http://localhost:3000/enter-room")
-        .json(&p)
+    client.get("http://localhost:3000/room")
+        .query(&q)
         .send()
         .await.unwrap()
-        .json::<Vec<Message>>().await.unwrap();
+        .json::<Vec<Message>>()
+        .await.unwrap()
+}
+#[derive(Serialize)]
+struct SendMessageQuery {
+    room_id: u64
+}
+async fn send_message(room_id: u64, message: Message) {
+    let q = SendMessageQuery {
+        room_id
+    };
 
-    res
+    let client = reqwest::Client::new();
+    client.post("http://localhost:3000/room")
+        .query(&q)
+        .json(&message)
+        .send()
+        .await.unwrap();
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Message {
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Message {
     user_id: u64,
-    ctime: u64,
     content: String,
+    ctime: u64,
 }
 impl Message {
-    fn new(user_id: u64, content: String) -> Self {
-        use std::time::SystemTime;
+    fn from(user_id: u64, content: &str) -> Self {
         let ctime = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH).unwrap()
             .as_secs();
         Self {
             user_id,
+            content: content.to_string(),
             ctime,
-            content,
-        }
-    }
-}
-#[derive(Serialize)]
-struct EnterRoomPayLoad {
-    user_id: u64,
-    room_id: u64,
-}
-impl EnterRoomPayLoad {
-    fn new(user_id: u64, room_id: u64) -> Self {
-        Self {
-            user_id,
-            room_id,
         }
     }
 }

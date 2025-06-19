@@ -1,31 +1,15 @@
 mod chat;
 use chat::*;
 
-use serde::{Serialize, Deserialize};
-use std::{
-    sync::{Arc, Mutex},
-    collections::HashMap
-};
+use serde::Deserialize;
 use axum::{
     routing::{Router, get, post},
     http::Method,
-    Json,
-    extract::State,
+    extract::{State, Query},
+    Json
 };
 use tower_http::cors::{Any, CorsLayer};
-
-struct AppState {
-    rooms: HashMap<RoomId, Room>,
-    users: u64,
-}
-impl AppState {
-    fn new() -> Self {
-        Self {
-            rooms: HashMap::new(),
-            users: 0
-        }
-    }
-}
+use std::sync::{Arc, Mutex};
 
 #[tokio::main]
 async fn main() {
@@ -33,68 +17,59 @@ async fn main() {
         .allow_methods([Method::GET, Method::POST])
         .allow_origin(Any);
 
-    let app_state = Arc::new(Mutex::new(AppState::new()));
+    let server = Arc::new(Mutex::new(Server::new()));
 
     let app = Router::new()
-        .route("/create-user", get(create_user))
-        .route("/enter-room", post(enter_room))
-        .route("/send-message", post(send_message))
-        .with_state(app_state)
+        .route("/", get(create_user))
+        .route("/room", get(enter_room))
+        .route("/room", post(send_message))
+        .with_state(server)
         .layer(cors);
 
     let listener = tokio::net::TcpListener::bind("localhost:3000").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+
+    axum::serve(listener, app).await.unwrap()
 }
 
 async fn create_user(
-    State(state): State<Arc<Mutex<AppState>>>
-) -> Json<u64> {
-    (*state.lock().unwrap()).users += 1;
-    
-    let new_user_id = (*state.lock().unwrap()).users;
-    Json(new_user_id)
-}
+    State(server): State<Arc<Mutex<Server>>>,
+) -> Json<UserId> {
+    let re = (*server.lock().unwrap())
+        .create_user();
 
-#[derive(Serialize, Deserialize, Clone)]
-struct EnterRoomPayLoad {
-    user_id: u64,
-    room_id: u64,
-}
-async fn enter_room(
-    State(state): State<Arc<Mutex<AppState>>>,
-    p: Json<EnterRoomPayLoad>,
-) -> Json<Vec<chat::Message>> {
-    let room_id = p.room_id;
-    let user_id = p.user_id;
+    println!("new user: {}", re);
 
-    println!("user {} entered {}", user_id, room_id);
-
-    let messages = (*state.lock().unwrap())
-        .rooms
-        .entry(room_id)
-        .or_insert_with(|| Room::new())
-        .read_messages(user_id);
-
-    Json(messages)
+    Json(re)
 }
 
 #[derive(Deserialize)]
-struct SendMessagePayLoad {
-    room_id: u64,
-    message: Message,
+struct EnterRoomQuery {
+    room_id: RoomId,
+    user_id: UserId,
+}
+async fn enter_room(
+    State(server): State<Arc<Mutex<Server>>>,
+    Query(q): Query<EnterRoomQuery>
+) -> Json<Vec<Message>> {
+    println!("user {} try to enter room {}", q.user_id, q.room_id);
+    let re = (*server.lock().unwrap())
+        .enter_room(q.room_id, q.user_id);
+
+    println!("messages: {:#?}", &re);
+
+    Json(re)
+}
+
+#[derive(Deserialize)]
+struct SendMessageQuery {
+    room_id: RoomId,
 }
 async fn send_message(
-    State(state): State<Arc<Mutex<AppState>>>,
-    p: Json<SendMessagePayLoad>,
-) {
-    let room_id = p.room_id;
-    let message = p.message.clone();
-
-    println!("message: {:?} sent to room {}", message, room_id);
-
-    (*state.lock().unwrap())
-        .rooms
-        .entry(room_id)
-        .or_insert(Room::new())
-        .send_message(message);
+    State(server): State<Arc<Mutex<Server>>>,
+    Query(q): Query<SendMessageQuery>,
+    Json(message): Json<Message>,
+)  {
+    println!("message {:#?} sent to room {}", &message, q.room_id);
+    (*server.lock().unwrap())
+        .send_message(q.room_id, message)
 }

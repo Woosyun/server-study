@@ -1,25 +1,25 @@
-use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
 pub type RoomId = u64;
 pub type UserId = u64;
 pub type Time = u64;
 
+#[derive(Serialize, Deserialize)]
 pub struct Server {
     rooms: HashMap<RoomId, Room>,
-    users: u64,
+    number_of_user: u64,
 }
 impl Server {
     pub fn new() -> Self {
         Self {
             rooms: HashMap::new(),
-            users: 0,
+            number_of_user: 0,
         }
     }
-
     pub fn create_user(&mut self) -> UserId {
-        self.users += 1;
-        self.users
+        self.number_of_user += 1;
+        self.number_of_user
     }
     pub fn enter_room(&mut self, room_id: RoomId, user_id: UserId) -> Vec<Message> {
         self.rooms
@@ -34,24 +34,26 @@ impl Server {
             .send_message(message)
     }
 }
-
-struct Room {
+#[derive(Serialize, Deserialize)]
+pub struct Room {
     messages: Vec<Message>,
-    last_read: HashMap<UserId, Time>
+    last_read: HashMap<UserId, Time>,
 }
 impl Room {
     pub fn new() -> Self {
         Self {
             messages: Vec::new(),
-            last_read: HashMap::new()
+            last_read: HashMap::new(),
         }
     }
-    fn read_messages(&mut self, user_id: UserId) -> Vec<Message> {
+    pub fn read_messages(&mut self, user_id: UserId) -> Vec<Message> {
+        use std::time::SystemTime;
+
         let last_read = self.last_read
             .entry(user_id)
-            .or_insert(0);
+            .or_insert_with(|| 0);
 
-        let result = self.messages
+        let messages = self.messages
             .iter()
             .filter_map(|message| {
                 if (*last_read) < message.ctime {
@@ -62,18 +64,18 @@ impl Room {
             })
             .collect::<Vec<_>>();
 
-        (*last_read) = result.get(result.len()-1).unwrap()
-            .ctime;
+        (*last_read) = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH).unwrap()
+            .as_secs();
 
-        result
+        messages
     }
-    fn send_message(&mut self, message: Message) {
-        self.messages
-            .push(message)
+    pub fn send_message(&mut self, message: Message) {
+        self.messages.push(message)
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     user_id: UserId,
     content: String,
