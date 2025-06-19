@@ -35,37 +35,19 @@ async fn create_user() -> u64 {
         .json::<u64>()
         .await.unwrap()
 }
-#[derive(Serialize)]
-struct EnterRoomQuery {
-    room_id: u64,
-    user_id: u64,
-}
 async fn enter_room(room_id: u64, user_id: u64) -> Vec<Message> {
-    let q = EnterRoomQuery {
-        room_id,
-        user_id,
-    };
-
     let client = reqwest::Client::new();
     client.get("http://localhost:3000/room")
-        .query(&q)
+        .query(&[("room_id", room_id), ("user_id", user_id)])
         .send()
         .await.unwrap()
         .json::<Vec<Message>>()
         .await.unwrap()
 }
-#[derive(Serialize)]
-struct SendMessageQuery {
-    room_id: u64
-}
 async fn send_message(room_id: u64, message: Message) {
-    let q = SendMessageQuery {
-        room_id
-    };
-
     let client = reqwest::Client::new();
     client.post("http://localhost:3000/room")
-        .query(&q)
+        .query(&[("room_id", room_id)])
         .json(&message)
         .send()
         .await.unwrap();

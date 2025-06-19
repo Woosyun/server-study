@@ -51,11 +51,8 @@ async fn enter_room(
     State(server): State<Arc<Mutex<Server>>>,
     Query(q): Query<EnterRoomQuery>
 ) -> Json<Vec<Message>> {
-    println!("user {} try to enter room {}", q.user_id, q.room_id);
     let re = (*server.lock().unwrap())
         .enter_room(q.room_id, q.user_id);
-
-    println!("messages: {:#?}", &re);
 
     Json(re)
 }

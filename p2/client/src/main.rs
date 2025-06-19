@@ -1,36 +1,41 @@
-const url: &'static str = "http://localhost:3000";
-
+use std::{
+    thread,
+    time::Duration,
+};
 #[tokio::main]
 async fn main() {
-    //set_value(0, "hello").await;
-    //set_value(1, "world").await;
+    set(0, "hello".to_string()).await;
+    set(0, "world".to_string()).await;
+    let world = get(0).await;
+    println!("value from 0: {:?}", world);
+    expires(0, 1).await;
 
-    read_value(0).await;
-    read_value(1).await;
-    read_value(2).await;
+    thread::sleep(Duration::from_secs(3));
 
-    //set_expire(0, 10).await;
+    let none = get(0).await;
+    println!("value from 0: {:?}", none)
 }
 
-async fn read_value(key: u32) {
-    let target = format!("{}/get/{}", url, key);
-    let res = reqwest::get(target)
+async fn get(key: u64) -> Option<String> {
+    let url = format!("http://localhost:3000/get/{}", key);
+    reqwest::get(url)
         .await.unwrap()
         .json::<Option<String>>()
-        .await.unwrap();
-    match res {
-        Some(value) => println!("key: {}, value: {}", key, value),
-        None => println!("key: {}, value not found", key),
-    };
+        .await.unwrap()
 }
-
-async fn set_value(key: u32, value: &str) {
-    let target = format!("{}/set/{}/{}", url, key, value);
-    reqwest::get(target)
+async fn set(key: u64, value: String) {
+    let url = format!("http://localhost:3000/set/{}", key);
+    let client =  reqwest::Client::new();
+    client.post(url)
+        .body(value)
+        .send()
         .await.unwrap();
 }
-async fn set_expire(key: u32, duration: u32) {
-    let target = format!("{}/set-expire/{}/{}", url, key, duration);
-    reqwest::get(target)
+async fn expires(key: u64, duration: u64) {
+    let url = format!("http://localhost:3000/expires/{}", key);
+    let client =  reqwest::Client::new();
+    client.post(url)
+        .json(&duration)
+        .send()
         .await.unwrap();
 }

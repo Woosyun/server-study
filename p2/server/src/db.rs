@@ -1,90 +1,76 @@
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    fs,
-};
 use serde::{Serialize, Deserialize};
-use serde_json;
+use std::{
+    fs,
+    path::PathBuf,
+    collections::HashMap,
+};
 
-pub type Key = u32;
+pub type Key = u64;
+pub type Time = u64;
 pub type Value = String;
 
 #[derive(Serialize, Deserialize)]
 pub struct Server {
     workdir: PathBuf,
     db: HashMap<Key, Value>,
-    expired: HashMap<Key, u64>,
+    expire: HashMap<Key, Time>
 }
 impl Server {
-    fn new(workdir: PathBuf) -> Self {
+    pub fn build(workdir: PathBuf) -> Self {
+        let path = workdir.join(Server::file_name());
+        if path.exists() {
+            let content = fs::read_to_string(path).unwrap();
+            let server: Server = serde_json::from_str(&content).unwrap();
+            return server;
+        }
+
         Self {
             workdir,
             db: HashMap::new(),
-            expired: HashMap::new(),
+            expire: HashMap::new(),
         }
     }
     fn file_name() -> &'static str {
-        "server_info.json"
+        "server"
     }
-    pub fn build(workdir: PathBuf) -> Result<Self, String> {
-        let mut path = workdir;
-        path.push(Server::file_name());
-        if !path.exists() {
-            Ok(Server::new(path))
-        } else {
-            let content = fs::read_to_string(path)
-                .map_err(|_| format!("cannot read file"))?;
-            let server = serde_json::from_str(&content)
-                .map_err(|_| format!("cannot parse file"))?;
-            Ok(server)
-        }
+    fn current_time(&self) -> Time {
+        use std::time::SystemTime;
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH).unwrap()
+            .as_secs()
     }
-
-    pub fn get(&mut self, key: &Key) -> Option<Value> {
-        if let Some(expire_time) = self.expired.get(key) {
-            if *expire_time < Server::current_time() {
-                let _ = self.db.remove(key);
-                let _ = self.expired.remove(key);
-                println!("{:?}", self.store());
+    pub fn get(&mut self, key: Key) -> Option<Value> {
+        // expired
+        if let Some(time) = self.expire.get(&key) {
+            if *time <= self.current_time() {
+                println!("key {} is expired", key);
+                self.db.remove(&key);
                 return None;
             }
         }
 
-        self.db.get(key).cloned()
+        self.store();
+        self.db.get(&key).cloned()
     }
     pub fn set(&mut self, key: Key, value: Value) {
         self.db.insert(key, value);
-        println!("{:?}", self.store());
+        self.store()
     }
-    pub fn expire(&mut self, key: Key, duration: u32) {
-        let expire_time = Server::current_time() + duration as u64;
-        self.expired.insert(key, expire_time);
-        println!("{:?}", self.store());
+    pub fn expires(&mut self, key: Key, duration: u64) {
+        let time = self.current_time() + duration;
+        self.expire.insert(key, time);
+        println!("key {} will expires at {}", key, time);
+        self.store()
     }
-
-    pub fn current_time() -> u64 {
-        use std::time::SystemTime;
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH).unwrap()
-            .as_secs();
-        now
-    }
-
-    pub fn store(&self) -> Result<(), String> {
-        let mut lock_file = self.workdir.clone();
-        lock_file.set_extension("lock");
-
-        println!("lock file: {:?}", &lock_file);
-
-        if !lock_file.exists() {
-            println!("can create lock file");
-            let content = serde_json::to_string(self)
-                .map_err(|_| format!("cannot stringify"))?;
-            fs::write(&lock_file, content)
-                .map_err(|_| format!("cannot write"))?;
-            fs::rename(&lock_file, &self.workdir)
-                .map_err(|_| format!("cannot rename"))?;
+    fn store(&self) {
+        let mut lock = self.workdir.join(Server::file_name());
+        lock.set_extension("lock");
+        if !lock.exists() {
+            let content = serde_json::to_string(&self).unwrap();
+            fs::write(&lock, &content).unwrap();
+            let mut path = lock.clone();
+            path.set_extension("");
+            fs::rename(&lock, &path).unwrap();
         }
-        Ok(())
     }
 }
